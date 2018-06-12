@@ -41,11 +41,12 @@ AUTH_ENTRY_REGISTER_API = 'register_api'
 
 @partial.partial
 def ensure_user_information(
-        strategy, auth_entry, backend=None, user=None, social=None,
-        allow_inactive_user=False, *args, **kwargs):
+        strategy, auth_entry, backend=None, user=None, social=None, allow_inactive_user=False, *args, **kwargs
+):
     """
-    Ensure that we have the necessary information about a user (either an
-    existing account or registration data) to proceed with the pipeline.
+    Ensure that we have the necessary information about a user to proceed with the pipeline.
+
+    Either an existing account or registration data.
     """
 
     response = {}
@@ -85,7 +86,9 @@ def ensure_user_information(
         raise AuthEntryError(backend, 'can\' get user data.')
 
     def dispatch_to_register():
-        """Force user creation on login or register"""
+        """
+        Force user creation on login or register.
+        """
 
         request = strategy.request
         data['terms_of_service'] = "True"

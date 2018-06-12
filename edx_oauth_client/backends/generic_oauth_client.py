@@ -1,3 +1,5 @@
+import urlparse
+
 from django.conf import settings
 from social.backends.oauth import BaseOAuth2
 from social.utils import handle_http_errors
@@ -21,19 +23,22 @@ DEFAULT_AUTH_PIPELINE = [
 ]
 
 
-class DrupalOAuthBackend(BaseOAuth2):
+class GenericOAuthBackend(BaseOAuth2):
     """
-    Backend for Drupal OAuth Server Authorization
+    Backend for Generic OAuth Server Authorization.
     """
-    DRUPAL_PRIVIDER_URL = settings.FEATURES.get('DRUPAL_PRIVIDER_URL')
-    DRUPAL_AUTHORIZE_URL = settings.FEATURES.get('DRUPAL_AUTHORIZE_URL', '/oauth2/authorize')
-    DRUPAL_GET_TOKEN_URL = settings.FEATURES.get('DRUPAL_GET_TOKEN_URL', '/oauth2/token')
-    name = 'drupal-oauth2'
-    ID_KEY = settings.FEATURES.get('DRUPAL_ID_KEY', 'uid')
-    AUTHORIZATION_URL = '{}{}'.format(DRUPAL_PRIVIDER_URL, DRUPAL_AUTHORIZE_URL)
-    ACCESS_TOKEN_URL = '{}{}'.format(DRUPAL_PRIVIDER_URL, DRUPAL_GET_TOKEN_URL)
+    # FIXME(idegtiarov) add required extention to the lms.envs.common with taken folowing parameters from the json
+    PRIVIDER_URL = settings.get('PRIVIDER_URL')
+    AUTHORIZE_URL = settings.get('AUTHORIZE_URL', '/oauth2/authorize')
+    GET_TOKEN_URL = settings.get('GET_TOKEN_URL', '/oauth2/token')
+    name = 'generic-oauth2'
+    # FIXME(idegtiarov) Clarify this parameter. DITTO add parameter to the general settings variable
+    ID_KEY = settings.get('PROVIDER_ID_KEY', 'uid')
+    AUTHORIZATION_URL = urlparse.join(PRIVIDER_URL, AUTHORIZE_URL)
+    ACCESS_TOKEN_URL = urlparse.join(PRIVIDER_URL, GET_TOKEN_URL)
     # USER_DATA_URL = '{url}/oauth2/access_token/{access_token}/'
-    DEFAULT_SCOPE = settings.FEATURES.get('DRUPAL_SCOPE', ['api'])
+    # FIXME(idegtiarov) figure out required SCOPE
+    DEFAULT_SCOPE = settings.FEATURES.get('SCOPE', ['api'])
     REDIRECT_STATE = False
     ACCESS_TOKEN_METHOD = 'POST'
 
@@ -42,7 +47,9 @@ class DrupalOAuthBackend(BaseOAuth2):
     skip_email_verification = True
 
     def setting(self, name, default=None):
-        """Return setting value from strategy"""
+        """
+        Return setting value from strategy.
+        """
         try:
             import third_party_auth
         except ImportError:
@@ -57,7 +64,7 @@ class DrupalOAuthBackend(BaseOAuth2):
                 return provider_config.get_setting(name)
             except KeyError:
                 pass
-        return super(DrupalOAuthBackend, self).setting(name, default=default)
+        return super(GenericOAuthBackend, self).setting(name, default=default)
 
     def get_user_details(self, response):
         """ Return user details from SSO account. """
@@ -81,7 +88,7 @@ class DrupalOAuthBackend(BaseOAuth2):
         )
         next_url = '/'
         self.strategy.session.setdefault('next', next_url)
-        return super(DrupalOAuthBackend, self).auth_complete(*args, **kwargs)
+        return super(GenericOAuthBackend, self).auth_complete(*args, **kwargs)
 
     def user_data(self, access_token, *args, **kwargs):
         """ Grab user profile information from SSO. """
@@ -94,7 +101,7 @@ class DrupalOAuthBackend(BaseOAuth2):
 
     def pipeline(self, pipeline, pipeline_index=0, *args, **kwargs):
         self.strategy.session.setdefault('auth_entry', 'register')
-        return super(DrupalOAuthBackend, self).pipeline(
+        return super(GenericOAuthBackend, self).pipeline(
             pipeline=self.PIPELINE, *args, **kwargs
         )
 
