@@ -31,6 +31,9 @@ Redirect uri must be **http://<edx_url>/auth/complete/custom-oauth2/**
     },
     ```
 
+    `CUSTOM_OAUTH_PARAMS` should be added to the `lms/envs/common.py` if
+    it is not supored by used OpenEdx.
+
     Custom backend is switched on by setting flag
     "ENABLE_CUSTOM_OAUTH_BACKEND" to true, if this functionality is not
     supported by used OpenEdx it could be added manually.

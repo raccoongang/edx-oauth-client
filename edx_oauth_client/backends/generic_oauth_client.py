@@ -39,14 +39,14 @@ class GenericOAuthBackend(BaseOAuth2):
     if not all(CUSTOM_OAUTH_PARAMS.values()):
         log.error("Some of the CUSTOM_OAUTH_PARAMS are improperly configured. Custom oauth won't work correctly.")
 
-    PRIVIDER_URL = CUSTOM_OAUTH_PARAMS.get('PRIVIDER_URL')
+    PROVIDER_URL = CUSTOM_OAUTH_PARAMS.get('PROVIDER_URL')
     AUTHORIZE_URL = CUSTOM_OAUTH_PARAMS.get('AUTHORIZE_URL')  # '/oauth2/authorize' usually is default value
     GET_TOKEN_URL = CUSTOM_OAUTH_PARAMS.get('GET_TOKEN_URL')  # '/oauth2/token' usually is default value
     ID_KEY = CUSTOM_OAUTH_PARAMS.get('PROVIDER_ID_KEY')  # unique marker which could be taken from the SSO response
     USER_DATA_URL = CUSTOM_OAUTH_PARAMS.get('USER_DATA_URL')  # '/api/current-user/' some url similar to the example
 
-    AUTHORIZATION_URL = urlparse.urljoin(PRIVIDER_URL, AUTHORIZE_URL)
-    ACCESS_TOKEN_URL = urlparse.urljoin(PRIVIDER_URL, GET_TOKEN_URL)
+    AUTHORIZATION_URL = urlparse.urljoin(PROVIDER_URL, AUTHORIZE_URL)
+    ACCESS_TOKEN_URL = urlparse.urljoin(PROVIDER_URL, GET_TOKEN_URL)
     DEFAULT_SCOPE = settings.FEATURES.get('SCOPE')  # extend the scope of the provided permissions.
     REDIRECT_STATE = False
     ACCESS_TOKEN_METHOD = 'POST'  # default method is 'GET'
