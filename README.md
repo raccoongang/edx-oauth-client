@@ -29,6 +29,12 @@ Redirect uri must be **http://<edx_url>/auth/complete/custom-oauth2/**
         "PROVIDER_ID_KEY": "<unique identifier>",
         "USER_DATA_URL": "/api/v0/users/me"
     },
+    ```
+
+    Custom backend is switched on by setting flag
+    "ENABLE_CUSTOM_OAUTH_BACKEND" to true, if this functionality is not
+    supported by used OpenEdx it could be added manually.
+    ```
     "THIRD_PARTY_AUTH_BACKENDS":["edx_oauth_client.backends.generic_oauth_client.GenericOAuthBackend"],
     ```
 
