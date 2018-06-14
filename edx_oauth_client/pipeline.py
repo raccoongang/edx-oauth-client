@@ -1,28 +1,11 @@
-import string  # pylint: disable-msg=deprecated-module
-import json
-import logging
-import requests
-
-from cms.djangoapps.course_creators.models import CourseCreator
-from django.http import HttpResponseBadRequest, HttpResponse
-from django.contrib.auth.models import User
-
-from social.pipeline import partial
-from django_countries import countries
-
-from student.views import create_account_with_params, reactivation_email_for_user
-from student.models import UserProfile, CourseAccessRole
-from student.roles import (
-    CourseInstructorRole, CourseStaffRole, GlobalStaff, OrgStaffRole,
-    UserBasedRole, CourseCreatorRole, CourseBetaTesterRole, OrgInstructorRole,
-    LibraryUserRole, OrgLibraryUserRole
-)
-from third_party_auth.pipeline import (
-    make_random_password, AuthEntryError
-)
-
-from opaque_keys.edx.keys import CourseKey
 from logging import getLogger
+
+from django.contrib.auth.models import User
+from django.http import HttpResponseBadRequest
+from social_core.pipeline.partial import partial
+from student.models import UserProfile
+from student.views import create_account_with_params, reactivation_email_for_user
+from third_party_auth.pipeline import (AuthEntryError, make_random_password)
 
 log = getLogger(__name__)
 
@@ -60,30 +43,28 @@ def ensure_user_information(
         access_token = kwargs['response']['access_token']
 
         country = user_data.get('country')
-        if not country and 'self' in user_data:
+        if not country:
             log.info('No country in response.')
-            api = user_data['self'].replace('current-', '')
-            headers = {'Authorization': 'Bearer {}'.format(access_token)}
-            resp = requests.get(api, headers=headers)
-            json_resp = resp.json()
-            if 'data' in json_resp:
-                country = json_resp['data'][0]['country']
-                log.info('Get country from API: %s', country)
-                country = dict(map(lambda x: (x[1], x[0]), countries)).get(country, country)
 
+        # Received fields could be pretty different from the expected, mandatory are only 'username' and 'email'
         data['username'] = user_data.get('username', user_data.get('name'))
-        data['first_name'] = user_data.get('firstName')
-        data['last_name'] = user_data.get('lastName')
-        data['email'] = user_data['email']
+        data['first_name'] = user_data.get('firstName', user_data.get('first_name'))
+        data['last_name'] = user_data.get('lastName', user_data.get('last_name'))
+        data['email'] = user_data.get('email')
         data['country'] = country
         data['access_token'] = access_token
-        if data['first_name'] or data['last_name']:
-            data['name'] = data['first_name'] + " " + data['last_name']
+        if any((data['first_name'], data['last_name'])):
+            data['name'] = '{} {}'.format(['first_name'], data['last_name']).strip()
         else:
-            data['name'] = user_data.get('preferred_username')
+            data['name'] = user_data.get('username')
+        if not all((data['username'], data['email'])):
+            raise AuthEntryError(
+                backend,
+                "One of the required parameters (username or email) is not received with the user data."
+            )
     except Exception as e:
-        log.error('Exception %s', e)
-        raise AuthEntryError(backend, 'can\' get user data.')
+        log.exception(e)
+        raise
 
     def dispatch_to_register():
         """
@@ -109,7 +90,6 @@ def ensure_user_information(
             user.last_name = data['last_name']
             user.is_active = True
             user.save()
-            CourseCreator.objects.get_or_create(user=user)
         return {'user': user}
 
     if not user:
@@ -120,8 +100,7 @@ def ensure_user_information(
         elif auth_entry in [AUTH_ENTRY_REGISTER, AUTH_ENTRY_REGISTER_2]:
             response = dispatch_to_register()
         elif auth_entry == AUTH_ENTRY_ACCOUNT_SETTINGS:
-            raise AuthEntryError(
-                backend, 'auth_entry is wrong. Settings requires a user.')
+            raise AuthEntryError(backend, 'auth_entry is wrong. Settings requires a user.')
         else:
             raise AuthEntryError(backend, 'auth_entry invalid')
     else:
@@ -131,14 +110,13 @@ def ensure_user_information(
             user.first_name = data['first_name']
             user.last_name = data['last_name']
             user.save()
-            CourseCreator.objects.get_or_create(user=user)
 
         try:
             user_profile = UserProfile.objects.get(user=user)
         except User.DoesNotExist:
             user_profile = None
         except User.MultipleObjectsReturned:
-            user_profile = UserProfile.objects.filter(user=user)[0]
+            user_profile = UserProfile.objects.filter(user=user).first()
 
         if user_profile:
             user_profile.name = user.get_full_name()

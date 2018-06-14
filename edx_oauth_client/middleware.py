@@ -6,7 +6,7 @@ from django.core.urlresolvers import reverse
 from django.contrib.auth import REDIRECT_FIELD_NAME, logout
 from django.shortcuts import redirect
 
-from social.apps.django_app.views import auth, NAMESPACE
+from social_django.views import auth, NAMESPACE
 
 try:
     from opaque_keys.edx.keys import CourseKey
@@ -22,7 +22,7 @@ class SeamlessAuthorization(object):
         """
         Check multidomain cookie and if user is authenticated on sso, login it on edx.
         """
-        backend = "drupal-oauth2"
+        backend = "custom-oauth2"
         current_url = request.get_full_path()
 
         # don't work for admin
@@ -62,10 +62,9 @@ class SeamlessAuthorization(object):
 class OAuthRedirection(object):
     def process_request(self, request):
         """
-        Redirect to PLP for pages that have duplicated functionality on PLP
+        Redirect to PLP for pages that have duplicated functionality on PLP.
         """
-        # FIXME take a look on this parameter where does it come from
-        PROVIDER_URL = settings.get("PROVIDER_URL", "")
+        PROVIDER_URL = settings.get('CUSTOM_OAUTH_PARAMS', {}).get("PROVIDER_URL", "")
         current_url = request.get_full_path()
         if current_url:
             start_url = current_url.split('?')[0].split('/')[1]

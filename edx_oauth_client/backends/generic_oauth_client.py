@@ -1,8 +1,13 @@
+import logging
 import urlparse
 
 from django.conf import settings
 from social.backends.oauth import BaseOAuth2
 from social.utils import handle_http_errors
+
+import third_party_auth
+
+log = logging.getLogger(__name__)
 
 DEFAULT_AUTH_PIPELINE = [
     'third_party_auth.pipeline.parse_query_params',
@@ -27,20 +32,24 @@ class GenericOAuthBackend(BaseOAuth2):
     """
     Backend for Generic OAuth Server Authorization.
     """
-    # FIXME(idegtiarov) add required extention to the lms.envs.common with taken folowing parameters from the json
-    PRIVIDER_URL = settings.get('PRIVIDER_URL')
-    AUTHORIZE_URL = settings.get('AUTHORIZE_URL', '/oauth2/authorize')
-    GET_TOKEN_URL = settings.get('GET_TOKEN_URL', '/oauth2/token')
-    name = 'generic-oauth2'
-    # FIXME(idegtiarov) Clarify this parameter. DITTO add parameter to the general settings variable
-    ID_KEY = settings.get('PROVIDER_ID_KEY', 'uid')
-    AUTHORIZATION_URL = urlparse.join(PRIVIDER_URL, AUTHORIZE_URL)
-    ACCESS_TOKEN_URL = urlparse.join(PRIVIDER_URL, GET_TOKEN_URL)
-    # USER_DATA_URL = '{url}/oauth2/access_token/{access_token}/'
-    # FIXME(idegtiarov) figure out required SCOPE
-    DEFAULT_SCOPE = settings.FEATURES.get('SCOPE', ['api'])
+    name = 'custom-oauth2'
+
+    CUSTOM_OAUTH_PARAMS = settings.CUSTOM_OAUTH_PARAMS
+
+    if not all(CUSTOM_OAUTH_PARAMS.values()):
+        log.error("Some of the CUSTOM_OAUTH_PARAMS are improperly configured. Custom oauth won't work correctly.")
+
+    PRIVIDER_URL = CUSTOM_OAUTH_PARAMS.get('PRIVIDER_URL')
+    AUTHORIZE_URL = CUSTOM_OAUTH_PARAMS.get('AUTHORIZE_URL')  # '/oauth2/authorize' usually is default value
+    GET_TOKEN_URL = CUSTOM_OAUTH_PARAMS.get('GET_TOKEN_URL')  # '/oauth2/token' usually is default value
+    ID_KEY = CUSTOM_OAUTH_PARAMS.get('PROVIDER_ID_KEY')  # unique marker which could be taken from the SSO response
+    USER_DATA_URL = CUSTOM_OAUTH_PARAMS.get('USER_DATA_URL')  # '/api/current-user/' some url similar to the example
+
+    AUTHORIZATION_URL = urlparse.urljoin(PRIVIDER_URL, AUTHORIZE_URL)
+    ACCESS_TOKEN_URL = urlparse.urljoin(PRIVIDER_URL, GET_TOKEN_URL)
+    DEFAULT_SCOPE = settings.FEATURES.get('SCOPE')  # extend the scope of the provided permissions.
     REDIRECT_STATE = False
-    ACCESS_TOKEN_METHOD = 'POST'
+    ACCESS_TOKEN_METHOD = 'POST'  # default method is 'GET'
 
     PIPELINE = DEFAULT_AUTH_PIPELINE
 
@@ -50,13 +59,10 @@ class GenericOAuthBackend(BaseOAuth2):
         """
         Return setting value from strategy.
         """
-        try:
-            import third_party_auth
-        except ImportError:
-            OAuth2ProviderConfig = None
-
         if third_party_auth.models.OAuth2ProviderConfig is not None:
-            providers = [p for p in third_party_auth.provider.Registry.displayed_for_login() if p.backend_name == self.name]
+            providers = [
+                p for p in third_party_auth.provider.Registry.displayed_for_login() if p.backend_name == self.name
+            ]
             if not providers:
                 raise Exception("Can't fetch setting of a disabled backend.")
             provider_config = providers[0]
@@ -67,12 +73,16 @@ class GenericOAuthBackend(BaseOAuth2):
         return super(GenericOAuthBackend, self).setting(name, default=default)
 
     def get_user_details(self, response):
-        """ Return user details from SSO account. """
+        """
+        Return user details from SSO account.
+        """
         return response
 
     @handle_http_errors
     def do_auth(self, access_token, *args, **kwargs):
-        """Finish the auth process once the access_token was retrieved"""
+        """
+        Finish the auth process once the access_token was retrieved.
+        """
         data = self.user_data(access_token)
         if data is not None and 'access_token' not in data:
             data['access_token'] = access_token
@@ -81,19 +91,20 @@ class GenericOAuthBackend(BaseOAuth2):
 
     @handle_http_errors
     def auth_complete(self, *args, **kwargs):
-        """Completes loging process, must return user instance"""
-        self.strategy.session_set(
-            '{}_state'.format(self.name),
-            self.data.get('state')
-        )
+        """
+        Complete loging process, must return user instance.
+        """
+        self.strategy.session_set('{}_state'.format(self.name), self.data.get('state'))
         next_url = '/'
         self.strategy.session.setdefault('next', next_url)
         return super(GenericOAuthBackend, self).auth_complete(*args, **kwargs)
 
     def user_data(self, access_token, *args, **kwargs):
-        """ Grab user profile information from SSO. """
+        """
+        Grab user profile information from SSO.
+        """
         data = self.get_json(
-            '{}{}'.format(self.DRUPAL_PRIVIDER_URL, settings.FEATURES.get('DRUPAL_USER_DATA_URL', '/api/current-user/')),
+            urlparse.urljoin(self.PROVIDER_URL, self.USER_DATA_URL),
             params={'access_token': access_token},
         )
         data['access_token'] = access_token
@@ -106,9 +117,13 @@ class GenericOAuthBackend(BaseOAuth2):
         )
 
     def get_user_id(self, details, response):
-        """Return a unique ID for the current user, by default from server
-        response."""
+        """
+        Return a unique ID for the current user, by default from server response.
+        """
         if 'data' in response:
-            return response['data'][0].get(self.ID_KEY)
+            id_key = response['data'][0].get(self.ID_KEY)
         else:
-            return response.get(self.ID_KEY)
+            id_key = response.get('email')
+        if not id_key:
+            log.error("ID_KEY is not found in the User data response. SSO won't work correctly")
+        return id_key

@@ -2,11 +2,11 @@
 SSO Generic Client for OAuth Identity Provider (ID).
 ### Instalation guide
  - Setup your ID site as OAuth2 server. Add client for OpenEdx
-Redirect uri must be **http://<edx_url>/auth/complete/generic-oauth2/**
+Redirect uri must be **http://<edx_url>/auth/complete/custom-oauth2/**
 
  - Install this client
    ```
-   pip install -e git+https://github.com/raccoongang/edx-oauth-client.git#egg=edx_oauth_client
+   pip install git+https://github.com/raccoongang/edx-oauth-client.git#egg=edx_oauth_client
    ```
 
  - Enable THIRD_PARTY_AUTH in edX
@@ -18,19 +18,22 @@ Redirect uri must be **http://<edx_url>/auth/complete/generic-oauth2/**
         ...
         "ENABLE_COMBINED_LOGIN_REGISTRATION": true,
         "ENABLE_THIRD_PARTY_AUTH": true,
-        "ENABLE_OAUTH": true,
+        "ENABLE_CUSTOM_OAUTH_BACKEND": true,
         ...
     }
     ...
-    "OAUTH_URLS": {
-        "PRIVIDER_URL": "http://providersite.domain",
-        "AUTHORIZE_URL":"/oauth2/authorize",
-        "GET_TOKEN_URL":"/oauth2/token"
-    }
-    "THIRD_PARTY_AUTH_BACKENDS":["edx_oauth_client.backends.generic_oauth_client.GenericOAuthBackend"]
+    "CUSTOM_OAUTH_PARAMS": {
+        "PROVIDER_URL": "https://example.com",
+        "AUTHORIZE_URL": "/oauth2/authorize",
+        "GET_TOKEN_URL": "/oauth2/access_token",
+        "PROVIDER_ID_KEY": "<unique identifier>",
+        "USER_DATA_URL": "/api/v0/users/me"
+    },
+    "THIRD_PARTY_AUTH_BACKENDS":["edx_oauth_client.backends.generic_oauth_client.GenericOAuthBackend"],
     ```
 
- - Add in file **lms/envs/common.py**. It's preffered to place it somewhere at the top of the list
+ - Add in file **lms/envs/common.py**. It's preffered to place it
+ somewhere at the top of the list
     ```
     INSTALLED_APPS = (
         ...
@@ -41,29 +44,36 @@ Redirect uri must be **http://<edx_url>/auth/complete/generic-oauth2/**
 
  - Add provider config in edX admin panel /admin/third_party_auth/oauth2providerconfig/
    - Enabled - **true**
-   - backend-name - **generic-oauth2**
+   - backend-name - **custom-oauth2**
    - Skip registration form - **true**
    - Skip email verification - **true**
-   - Client ID from Drupal Admin OAuth Tab
-   - Client Secret from Drupal Admin OAuth Tab
+   - Client ID from Provider Admin OAuth Tab
+   - Client Secret from Provider Admin OAuth Tab
    - Make it visible ? + link on Edx
    - name slug should be the same as provider name ? temp
 
- - If you're want seamless authorization add middleware classes for SeamlessAuthorization (crossdomain cookie support needed)
+ - If you're want seamless authorization add middleware classes for
+ SeamlessAuthorization (crossdomain cookie support needed)
    ```
    MIDDLEWARE_CLASSES += ("edx_oauth_client.middleware.SeamlessAuthorization",)
    ```
 
-   This feature requers to update you Drupal site's behaviour:
+   This feature requers to update you SSO Provider site's behaviour:
 
-   Create multi-domain cookies named “authenticated”=1 and “authenticated_user”=”<username>” if user is logged in. And delete these cookies on logout
+   Create multi-domain cookies named “authenticated”=1 and
+   “authenticated_user”=”<username>” if user is logged in. And delete
+   these cookies on logout
 
-   Also you should initiate user creation on edX after user creation on Drupal. You need to send GET request to Edx API on url:
+   Also you should initiate user creation on edX after user creation on
+   Provider. You need to send GET request to Edx API on url:
    ```
-   https://<edx-url>/auth/complete/drupal-oauth2/?state=<state>&code=<code>
+   https://<edx-url>/auth/complete/custom-oauth2/?state=<state>&code=<code>
    ```
 
-   Where `state` is md5(time()) and `code` is code for authorization (create it if doesn't exist)
+   Where `state` is md5(time()) and `code` is code for authorization
+   (create it if doesn't exist)
 
-**Note.** If you work on local devstack. Inside your edx’s vagrant in /etc/hosts add a row with your machine’s IP  and drupal’s vhost. For example:
-```192.168.0.197 drupal.local```
+**Note.** If you work on local devstack. Inside your edx’s vagrant in
+/etc/hosts add a row with your machine’s IP and provider’s vhost. For
+example:
+```192.168.0.197 sso.local```
