@@ -69,7 +69,10 @@ class OAuthRedirection(object):
         """
         Redirect to PLP for pages that have duplicated functionality on PLP.
         """
-        PROVIDER_URL = settings.get('CUSTOM_OAUTH_PARAMS', {}).get("PROVIDER_URL", "")
+        CUSTOM_OAUTH_PARAMS = {}
+        if hasattr(settings, 'CUSTOM_OAUTH_PARAMS'):
+            CUSTOM_OAUTH_PARAMS = settings.CUSTOM_OAUTH_PARAMS
+        PROVIDER_URL = CUSTOM_OAUTH_PARAMS.get("PROVIDER_URL", "")
         current_url = request.get_full_path()
         if current_url:
             start_url = current_url.split('?')[0].split('/')[1]
