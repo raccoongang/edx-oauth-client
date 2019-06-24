@@ -74,9 +74,9 @@ class OAuthRedirection(object):
             CUSTOM_OAUTH_PARAMS = settings.CUSTOM_OAUTH_PARAMS
         PROVIDER_URL = CUSTOM_OAUTH_PARAMS.get("PROVIDER_URL", "")
 
-        COURSES_LIST_URL_PATH = CUSTOM_OAUTH_PARAMS.get("COURSES_LIST_URL_PATH", "")
-        USER_ACCOUNT_URL_PATH = CUSTOM_OAUTH_PARAMS.get("USER_ACCOUNT_URL_PATH", "")
-        DASHBOARD_URL_PATH = CUSTOM_OAUTH_PARAMS.get("DASHBOARD_URL_PATH", "")
+        COURSES_LIST_URL_PATH = CUSTOM_OAUTH_PARAMS.get("COURSES_LIST_URL_PATH")
+        USER_ACCOUNT_URL_PATH = CUSTOM_OAUTH_PARAMS.get("USER_ACCOUNT_URL_PATH")
+        DASHBOARD_URL_PATH = CUSTOM_OAUTH_PARAMS.get("DASHBOARD_URL_PATH")
 
         current_url = request.get_full_path()
         if current_url:
@@ -103,7 +103,7 @@ class OAuthRedirection(object):
             debug_handle_local_urls = ('debug', settings.STATIC_URL, settings.MEDIA_URL)
             handle_local_urls += debug_handle_local_urls
 
-        if request.path == "/dashboard/" or request.path == "/dashboard":
+        if request.path in ("/dashboard/", "/dashboard"):
             if is_auth and DASHBOARD_URL_PATH:
                 return redirect(os.path.join(PROVIDER_URL, DASHBOARD_URL_PATH))
             else:
@@ -121,11 +121,10 @@ class OAuthRedirection(object):
         if r.match(current_url):
             is_courses_list_or_about_page = True
 
-        if COURSES_LIST_URL_PATH and (request.path == "/courses/" or request.path == "/courses"):
+        if COURSES_LIST_URL_PATH and request.path in ("/courses/", "/courses"):
             return redirect(os.path.join(PROVIDER_URL, COURSES_LIST_URL_PATH))
 
-        if request.path.startswith(
-                '/u/') or request.path == "/account/settings/" or request.path == "/account/settings":
+        if request.path.startswith('/u/') or request.path in ("/account/settings/", "/account/settings"):
             if is_auth and USER_ACCOUNT_URL_PATH:
                 return redirect(os.path.join(PROVIDER_URL, USER_ACCOUNT_URL_PATH))
             else:
