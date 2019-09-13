@@ -33,7 +33,7 @@ class SeamlessAuthorization(object):
         """
         Delete cross-domain cookie of SSO flow to accomplish logout.
         """
-        if not request.session.get(self.cookie_name):
+        if not request.session.get(self.cookie_name) and self.cookie_domain:
             response.set_cookie(
                 self.cookie_name,
                 domain=self.cookie_domain,
