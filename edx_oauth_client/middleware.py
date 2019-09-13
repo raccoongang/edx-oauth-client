@@ -1,15 +1,16 @@
 import logging
+import re
+
 from urlparse import urljoin, urlparse
 
-import re
 from django.conf import settings
-from django.contrib.auth import REDIRECT_FIELD_NAME, logout
+from django.contrib.auth import logout, REDIRECT_FIELD_NAME
 from django.shortcuts import redirect
 from django.urls import reverse
 from social_django.views import auth, NAMESPACE
 
 from edx_oauth_client.backends.generic_oauth_client import GenericOAuthBackend
-from edx_oauth_client.constants import LOCAL_URLS, API_URLS, OAUTH_PROCESS_URLS
+from edx_oauth_client.constants import API_URLS, LOCAL_URLS, OAUTH_PROCESS_URLS
 
 log = logging.getLogger(__name__)
 
