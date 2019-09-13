@@ -21,13 +21,10 @@ except ImportError:
 
 
 class SeamlessAuthorization(object):
-    cookie_name = GenericOAuthBackend.CUSTOM_OAUTH_PARAMS.get(
-        "COOKIE_NAME", "authenticated"
-    )
+    cookie_name = GenericOAuthBackend.CUSTOM_OAUTH_PARAMS.get("COOKIE_NAME", "authenticated")
     cookie_domain = GenericOAuthBackend.CUSTOM_OAUTH_PARAMS.get("COOKIE_DOMAIN")
     provider_url = GenericOAuthBackend.CUSTOM_OAUTH_PARAMS.get("PROVIDER_URL", "")
     provider_logout_url_path = GenericOAuthBackend.CUSTOM_OAUTH_PARAMS.get("LOGOUT_URL_PATH", "logout")
-
 
     def process_response(self, request, response):
         """
@@ -52,15 +49,14 @@ class SeamlessAuthorization(object):
         current_url = request.get_full_path()
 
         # SeamlessAuthorization doesn't work for Django administration
-        if hasattr(settings, 'SOCIAL_AUTH_EXCLUDE_URL_PATTERN'):
+        if hasattr(settings, "SOCIAL_AUTH_EXCLUDE_URL_PATTERN"):
             r = re.compile(settings.SOCIAL_AUTH_EXCLUDE_URL_PATTERN)
             if r.match(current_url):
                 return None
 
         auth_cookie = request.COOKIES.get(self.cookie_name)
         auth_cookie_portal = request.session.get(self.cookie_name)
-        continue_url = reverse('{0}:complete'.format(NAMESPACE),
-                               args=(backend,))
+        continue_url = reverse("{0}:complete".format(NAMESPACE), args=(backend,))
         is_auth = request.user.is_authenticated()
         is_same_user = (auth_cookie == auth_cookie_portal)
 
@@ -79,8 +75,9 @@ class SeamlessAuthorization(object):
         if not is_same_user and is_auth:
             logout(request)
 
-        if (auth_cookie and not is_continue and (not is_auth or not is_same_user)) or \
-                ('force_auth' in request.session and request.session.pop('force_auth')):
+        if (auth_cookie and not is_continue and (not is_auth or not is_same_user)) or (
+            "force_auth" in request.session and request.session.pop("force_auth")
+        ):
             query_dict = request.GET.copy()
             query_dict[REDIRECT_FIELD_NAME] = current_url
             query_dict["auth_entry"] = "login"
@@ -121,10 +118,9 @@ class OAuthRedirection(object):
             if courses_list_url_path and request.path.strip("/") in reverse("courses"):
                 return redirect(urljoin(provider_url, courses_list_url_path))
 
-            if (
-                    user_account_url_path
-                    and (request.path.startswith("/u/") or request.path.strip("/") in reverse("account_settings"))
+            if user_account_url_path and (
+                request.path.startswith("/u/") or request.path.strip("/") in reverse("account_settings")
             ):
                 return redirect(urljoin(provider_url, user_account_url_path))
         elif start_url_path not in (API_URLS + OAUTH_PROCESS_URLS):
-            request.session['force_auth'] = True
+            request.session["force_auth"] = True
