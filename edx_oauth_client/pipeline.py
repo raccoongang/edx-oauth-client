@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import datetime
 from logging import getLogger
 
 from student.forms import AccountCreationForm
@@ -39,17 +40,23 @@ def ensure_user_information(
         # Received fields could be pretty different from the expected, mandatory are only 'username' and 'email'
         data['username'] = user_data.get('username', user_data.get('name'))
         data['first_name'] = user_data.get('firstname', user_data.get('first_name'))
-        data['second_name'] = user_data.get('secondname', '')
         data['last_name'] = user_data.get('lastname', user_data.get('last_name'))
         data['email'] = user_data.get('email')
         data['country'] = country
         data['access_token'] = access_token
 
+        date_of_birth = user_data.get('date_of_birth')
+
+        if date_of_birth is not None:
+            data['year_of_birth'] = datetime.datetime.strptime(date_of_birth, '%d.%m.%Y').year
+
+        # User API provide two possible variants "male" or "female", with are strings.
+        # We need extract only first letter and save it to the user profile model.
         if user_data.get('gender'):
             data['gender'] = user_data.get('gender')[0]
 
         if any((data['first_name'], data['last_name'])):
-            data['name'] = '{} {} {}'.format(['first_name'], data['second_name'], data['last_name']).strip()
+            data['name'] = u'{} {}'.format(data['first_name'], data['last_name']).strip()
         else:
             data['name'] = user_data.get('username')
         if not all((data['username'], data['email'])):
