@@ -141,19 +141,6 @@ class GenericOAuthBackend(BaseOAuth2):
 
         return response.get(self.setting("ID_KEY"))
 
-    def auth_complete_params(self, state=None):
-        """
-        Update auth complete params from custom oauth provider needs.
-        """
-        res = super(GenericOAuthBackend, self).auth_complete_params(state)
-
-        res.update({
-            'id': res.get('client_id'),
-            'secret': res.get('client_secret'),
-        })
-
-        return res
-
     @handle_http_errors
     def auth_complete(self, *args, **kwargs):
         """
@@ -177,8 +164,5 @@ class GenericOAuthBackend(BaseOAuth2):
         )
         self.process_error(response)
         access_token = response['access_token']
-
-        if type(access_token) not in (str, unicode) and 'value' in access_token:
-            access_token = access_token['value']
 
         return self.do_auth(access_token, response=response, *args, **kwargs)
