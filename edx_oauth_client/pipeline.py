@@ -1,16 +1,17 @@
-# -*- coding: utf-8 -*-
-from logging import getLogger
+import logging
 
-from student.forms import AccountCreationForm
 from django.contrib.auth.models import User
+from django.shortcuts import render_to_response, redirect
 from social_core.pipeline import partial
-from openedx.core.djangoapps.user_api.accounts.utils import generate_password
-from student.helpers import (
-    do_create_account,
-)
-from third_party_auth.pipeline import AuthEntryError
+from third_party_auth.pipeline import AuthEntryError, is_api, get_complete_url
 
-log = getLogger(__name__)
+from openedx.core.djangoapps.user_authn import cookies as user_authn_cookies
+from openedx.core.djangoapps.user_authn.views.registration_form import AccountCreationForm
+from openedx.core.djangoapps.user_authn.utils import generate_password
+from student.helpers import do_create_account
+
+
+log = logging.getLogger(__name__)
 
 
 @partial.partial
@@ -29,24 +30,18 @@ def ensure_user_information(
             user_data = kwargs['response']['data'][0]
         else:
             user_data = kwargs['response']
-        log.info('Get user data: %s', str(user_data))
-        access_token = kwargs['response']['access_token']
+        log.info('Get user data')
+
+        data['access_token'] = kwargs['response']['access_token']
 
         country = user_data.get('country')
         if not country:
             log.info('No country in response.')
 
-        # Received fields could be pretty different from the expected, mandatory are only 'username' and 'email'
-
-        data['access_token'] = access_token
         for key, value in backend.setting('USER_DATA_KEY_VALUES').items():
             data[key] = user_data.get(value)
 
-        if any((data['first_name'], data['last_name'])):
-            data['name'] = u'{} {}'.format(data['first_name'], data['last_name']).strip()
-        else:
-            data['name'] = user_data.get('username')
-        if not all((data['username'], data['email'])):
+        if kwargs.get('is_new') and not all((data['username'], data['email'])):
             raise AuthEntryError(
                 backend,
                 "One of the required parameters (username or email) is not received with the user data."
@@ -65,7 +60,7 @@ def ensure_user_information(
         data['provider'] = backend.name
 
         try:
-            user = User.objects.get(email=data['email'])
+            user = User.objects.get(username=data['username'])
         except User.DoesNotExist:
             form = AccountCreationForm(
                 data=data,
@@ -80,3 +75,80 @@ def ensure_user_information(
             user.save()
 
     return {'user': user}
+
+
+@partial.partial
+def fill_in_email(
+        strategy, auth_entry, backend=None, user=None, social=None, allow_inactive_user=False, *args, **kwargs
+):
+    if kwargs.get("is_new"):
+        request = kwargs.get('request')
+        email = strategy.request_data().get('email')
+
+        if not email:
+            current_partial = kwargs.get("current_partial")
+
+            return render_to_response(
+                "register_email_form.html",
+                {
+                    "partial_token": current_partial.token,
+                    "path": request.path,
+                    "state": kwargs.get('request').GET.get('state'),
+                    "code": kwargs.get('request').GET.get('code')
+                }
+            )
+        else:
+            kwargs['response']["email"] = email
+            if request.method == "POST":
+                return strategy.redirect(
+                    '/auth/complete/edx-oauth2/?state={}&code={}&partial_token={}&email={}'.format(
+                        kwargs['request'].POST.get('state'),
+                        kwargs['request'].POST.get('code'),
+                        kwargs.get('current_partial').token,
+                        email
+                    )
+                )
+
+
+@partial.partial
+def set_logged_in_cookies(backend=None, user=None, strategy=None, auth_entry=None, current_partial=None,
+                          *args, **kwargs):
+    """
+    This pipeline step sets the "logged in" cookie for authenticated users.
+
+    Some installations have a marketing site front-end separate from
+    edx-platform.  Those installations sometimes display different
+    information for logged in versus anonymous users (e.g. a link
+    to the student dashboard instead of the login page.)
+    Since social auth uses Django's native `login()` method, it bypasses
+    our usual login view that sets this cookie.  For this reason, we need
+    to set the cookie ourselves within the pipeline.
+    The procedure for doing this is a little strange.  On the one hand,
+    we need to send a response to the user in order to set the cookie.
+    On the other hand, we don't want to drop the user out of the pipeline.
+    For this reason, we send a redirect back to the "complete" URL,
+    so users immediately re-enter the pipeline.  The redirect response
+    contains a header that sets the logged in cookie.
+    If the user is not logged in, or the logged in cookie is already set,
+    the function returns `None`, indicating that control should pass
+    to the next pipeline step.
+    """
+    if not is_api(auth_entry) and user is not None and user.is_authenticated:
+        request = strategy.request if strategy else None
+        # n.b. for new users, user.is_active may be False at this point; set the cookie anyways.
+        if request is not None:
+            # Check that the cookie isn't already set.
+            # This ensures that we allow the user to continue to the next
+            # pipeline step once he/she has the cookie set by this step.
+            has_cookie = user_authn_cookies.are_logged_in_cookies_set(request)
+            if not has_cookie:
+                try:
+                    redirect_url = get_complete_url(current_partial.backend)
+                except ValueError:
+                    # If for some reason we can't get the URL, just skip this step
+                    # This may be overly paranoid, but it's far more important that
+                    # the user log in successfully than that the cookie is set.
+                    pass
+                else:
+                    response = redirect(redirect_url)
+                    return user_authn_cookies.set_logged_in_cookies(request, response, user)

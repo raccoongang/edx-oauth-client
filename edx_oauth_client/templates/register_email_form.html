@@ -1,0 +1,9 @@
+<h1>Register add email HTML</h1>
+<form action="{{ path }}" method="POST">
+    <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+    <input type="hidden" name="partial_token" value="{{ partial_token }}">
+    <input type="hidden" name="state" value="{{ state }}">
+    <input type="hidden" name="code" value="{{ code }}">
+    <input type="email" name="email">
+    <button type="submit">Submit</button>
+</form>

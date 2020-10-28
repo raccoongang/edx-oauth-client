@@ -20,12 +20,13 @@ DEFAULT_AUTH_PIPELINE = [
     'third_party_auth.pipeline.associate_by_email_if_login_api',
     'social.pipeline.user.get_username',
     'third_party_auth.pipeline.set_pipeline_timeout',
+    'edx_oauth_client.pipeline.fill_in_email',
     'edx_oauth_client.pipeline.ensure_user_information',
     'social.pipeline.user.create_user',
     'social.pipeline.social_auth.associate_user',
     'social.pipeline.social_auth.load_extra_data',
     'social.pipeline.user.user_details',
-    'third_party_auth.pipeline.set_logged_in_cookies',
+    'edx_oauth_client.pipeline.set_logged_in_cookies',
     'third_party_auth.pipeline.login_analytics'
 ]
 
@@ -75,17 +76,6 @@ class GenericOAuthBackend(BaseOAuth2):
                 if error_url:
                     return error_url
 
-        # Special case: we want to get this particular setting directly from the provider database
-        # entry if possible; if we don't have the information, fall back to the default behavior.
-        if name == 'MAX_SESSION_LENGTH':
-            running_pipeline = third_party_auth.pipeline.get(self.request) if self.request else None
-            if running_pipeline is not None:
-                provider_config = third_party_auth.provider.Registry.get_from_pipeline(running_pipeline)
-                if provider_config:
-                    return provider_config.max_session_length
-
-        # At this point, we know 'name' is not set in a [OAuth2|LTI|SAML]ProviderConfig row.
-        # It's a global Django setting like 'FIELDS_STORED_IN_SESSION':
         return DjangoStrategy(self).setting(name, default, backend)
 
     def get_user_details(self, response):
@@ -104,7 +94,11 @@ class GenericOAuthBackend(BaseOAuth2):
         if self.setting("USER_DATA_REQUEST_METHOD", "GET") == "GET":
             headers = {'Authorization': 'Bearer {}'.format(access_token)}
         else:
-            params = {'access_token': access_token}
+            params = {
+                "access_token": access_token,
+                "user_id": kwargs.get('response').get('user_id'),
+                "cert": "",
+            }
 
         data = self.request_access_token(
             self.setting('USER_DATA_URL'),
@@ -146,8 +140,8 @@ class GenericOAuthBackend(BaseOAuth2):
         """
         Completes login process, must return user instance
         """
-        state = self.validate_state()
         self.process_error(self.data)
+        state = self.validate_state()
 
         data, params = None, None
         if self.setting("ACCESS_TOKEN_METHOD", "POST") == "GET":
@@ -160,9 +154,9 @@ class GenericOAuthBackend(BaseOAuth2):
             data=data,
             params=params,
             headers=self.auth_headers(),
+            auth=self.auth_complete_credentials(),
             method=self.setting("ACCESS_TOKEN_METHOD", "POST")
         )
         self.process_error(response)
-        access_token = response['access_token']
 
-        return self.do_auth(access_token, response=response, *args, **kwargs)
+        return self.do_auth(response['access_token'], response=response, *args, **kwargs)
