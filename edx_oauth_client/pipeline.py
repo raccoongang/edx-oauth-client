@@ -143,7 +143,11 @@ def set_logged_in_cookies(backend=None, user=None, strategy=None, auth_entry=Non
             has_cookie = user_authn_cookies.are_logged_in_cookies_set(request)
             if not has_cookie:
                 try:
-                    redirect_url = get_complete_url(current_partial.backend)
+                    # redirect_url = get_complete_url(current_partial.backend)
+                    redirect_url = '/auth/complete/edx-oauth2/?state={}&code={}'.format(
+                        kwargs['request'].GET.get('state'),
+                        kwargs['request'].GET.get('code'),
+                    )
                 except ValueError:
                     # If for some reason we can't get the URL, just skip this step
                     # This may be overly paranoid, but it's far more important that
