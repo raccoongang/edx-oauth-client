@@ -1,5 +1,7 @@
 import logging
 
+from slugify import slugify
+
 from django.contrib.auth.models import User
 from django.shortcuts import render_to_response, redirect
 from social_core.pipeline import partial
@@ -40,6 +42,8 @@ def ensure_user_information(
 
         for key, value in backend.setting('USER_DATA_KEY_VALUES').items():
             data[key] = user_data.get(value)
+
+        data['username'] = slugify("{} {}".format(user_data['givenname'], user_data['lastname']), separator='_')
 
         if kwargs.get('is_new') and not all((data['username'], data['email'])):
             raise AuthEntryError(
