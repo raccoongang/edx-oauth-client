@@ -1,9 +1,8 @@
 import logging
 
-from slugify import slugify
-
 from django.contrib.auth.models import User
 from django.shortcuts import render_to_response, redirect
+from django.urls import reverse
 from social_core.pipeline import partial
 from third_party_auth.pipeline import AuthEntryError, is_api, get_complete_url
 
@@ -36,14 +35,18 @@ def ensure_user_information(
 
         data['access_token'] = kwargs['response']['access_token']
 
-        country = user_data.get('country')
+        country = user_data.get('country', 'UA')
+
         if not country:
             log.info('No country in response.')
 
         for key, value in backend.setting('USER_DATA_KEY_VALUES').items():
             data[key] = user_data.get(value)
 
-        data['username'] = slugify("{} {}".format(user_data['givenname'], user_data['lastname']), separator='_')
+        if not data['email']:
+            data['email'] = strategy.session_get('email', "")
+
+        data['username'] = data['email']
 
         if kwargs.get('is_new') and not all((data['username'], data['email'])):
             raise AuthEntryError(
@@ -58,13 +61,13 @@ def ensure_user_information(
         raise AuthEntryError(backend, "Cannot receive user's data")
 
     if not user:
-        data['terms_of_service'] = "True"
+        data['terms_of_service'] = 'True'
         data['honor_code'] = 'True'
         data['password'] = generate_password()
         data['provider'] = backend.name
 
         try:
-            user = User.objects.get(username=data['username'])
+            user = User.objects.get(profile__edrpoucode=user_data.get('edrpoucode'))
         except User.DoesNotExist:
             form = AccountCreationForm(
                 data=data,
@@ -76,6 +79,9 @@ def ensure_user_information(
             (user, profile, registration) = do_create_account(form)
             user.is_active = True
             user.set_unusable_password()
+            user.profile.edrpoucode = user_data.get('edrpoucode')
+            user.profile.second_name = user_data.get('middlename')
+            user.profile.save()
             user.save()
 
     return {'user': user}
@@ -85,31 +91,27 @@ def ensure_user_information(
 def fill_in_email(
         strategy, auth_entry, backend=None, user=None, social=None, allow_inactive_user=False, *args, **kwargs
 ):
-    if kwargs.get("is_new"):
+    if kwargs.get('is_new'):
         request = kwargs.get('request')
-        email = strategy.request_data().get('email')
+        email = strategy.request_data().get('email', strategy.session_get('email', None))
 
         if not email:
-            current_partial = kwargs.get("current_partial")
-
             return render_to_response(
-                "register_email_form.html",
+                'register_email_form.html',
                 {
-                    "partial_token": current_partial.token,
-                    "path": request.path,
-                    "state": kwargs.get('request').GET.get('state'),
-                    "code": kwargs.get('request').GET.get('code')
+                    'path': request.path,
+                    'state': request.GET.get('state'),
+                    'code': request.GET.get('code'),
                 }
             )
         else:
-            kwargs['response']["email"] = email
-            if request.method == "POST":
+            if request.method == 'POST':
+                request.session['email'] = email
                 return strategy.redirect(
-                    '/auth/complete/edx-oauth2/?state={}&code={}&partial_token={}&email={}'.format(
-                        kwargs['request'].POST.get('state'),
-                        kwargs['request'].POST.get('code'),
-                        kwargs.get('current_partial').token,
-                        email
+                    '{backend_url}?state={state}&code={code}'.format(
+                        backend_url=reverse('social:complete', args=(backend.name,)),
+                        state=request.POST.get('state'),
+                        code=request.POST.get('code'),
                     )
                 )
 
@@ -147,10 +149,10 @@ def set_logged_in_cookies(backend=None, user=None, strategy=None, auth_entry=Non
             has_cookie = user_authn_cookies.are_logged_in_cookies_set(request)
             if not has_cookie:
                 try:
-                    # redirect_url = get_complete_url(current_partial.backend)
-                    redirect_url = '/auth/complete/edx-oauth2/?state={}&code={}'.format(
-                        kwargs['request'].GET.get('state'),
-                        kwargs['request'].GET.get('code'),
+                    redirect_url = '{backend_url}?state={state}&code={code}'.format(
+                        backend_url=reverse('social:complete', args=(backend.name,)),
+                        state=kwargs['request'].GET.get('state'),
+                        code=kwargs['request'].GET.get('code'),
                     )
                 except ValueError:
                     # If for some reason we can't get the URL, just skip this step

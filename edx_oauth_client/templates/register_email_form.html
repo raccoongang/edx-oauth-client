@@ -30,7 +30,6 @@
                     <h6 class="card-subtitle mb-2 text-muted text-center pt-2">{% trans "Please, fill in the form your email" %}</h6>
                     <form action="{{ path }}" method="POST">
                         <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
-                        <input type="hidden" name="partial_token" value="{{ partial_token }}">
                         <input type="hidden" name="state" value="{{ state }}">
                         <input type="hidden" name="code" value="{{ code }}">
                         <div class="form-group">
