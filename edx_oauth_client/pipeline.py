@@ -35,10 +35,7 @@ def ensure_user_information(
 
         data['access_token'] = kwargs['response']['access_token']
 
-        country = user_data.get('country', 'UA')
-
-        if not country:
-            log.info('No country in response.')
+        data['country'] = user_data.get('country', 'UA')
 
         for key, value in backend.setting('USER_DATA_KEY_VALUES').items():
             data[key] = user_data.get(value)
@@ -91,6 +88,12 @@ def ensure_user_information(
 def fill_in_email(
         strategy, auth_entry, backend=None, user=None, social=None, allow_inactive_user=False, *args, **kwargs
 ):
+    """
+    Additional pipeline for checking user email from the provider on registration step.
+
+    Checks if email is received from the provider and render the email form to the user if it is not.
+    After successful adding the email, registration process continues.
+    """
     if kwargs.get('is_new'):
         request = kwargs.get('request')
         email = strategy.request_data().get('email', strategy.session_get('email', None))
