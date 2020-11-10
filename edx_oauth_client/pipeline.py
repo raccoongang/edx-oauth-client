@@ -47,6 +47,11 @@ def ensure_user_information(
 
         data['username'] = data['email']
 
+        if not data['name']:
+            data['name'] = ' '.join(
+                [user_data.get('lastname', ''), user_data.get('givenname', ''), user_data.get('middlename', '')]
+            )
+
         if kwargs.get('is_new') and not all((data['username'], data['email'])):
             raise AuthEntryError(
                 backend,
@@ -66,7 +71,7 @@ def ensure_user_information(
         data['provider'] = backend.name
 
         try:
-            user = User.objects.get(profile__edrpoucode=user_data.get('edrpoucode'))
+            user = User.objects.get(profile__drfocode=user_data.get('drfocode'))
         except User.DoesNotExist:
             form = AccountCreationForm(
                 data=data,
@@ -78,7 +83,7 @@ def ensure_user_information(
             (user, profile, registration) = do_create_account(form)
             user.is_active = True
             user.set_unusable_password()
-            user.profile.edrpoucode = user_data.get('edrpoucode')
+            user.profile.drfocode = user_data.get('drfocode')
             user.profile.second_name = user_data.get('middlename')
             user.profile.save()
             user.save()
