@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 
 from django.conf import settings
-from EUSignCP import EU_CERT_KEY_TYPE_DSTU4145, EU_KEY_USAGE_KEY_AGREEMENT, EUGetInterface, EULoad, EUUnload
+from iit_protection.EUSignCP import EU_CERT_KEY_TYPE_DSTU4145, EU_KEY_USAGE_KEY_AGREEMENT, EUGetInterface, EULoad, EUUnload
 
 log = logging.getLogger(__name__)
 
