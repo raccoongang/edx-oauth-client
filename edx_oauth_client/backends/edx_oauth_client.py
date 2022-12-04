@@ -1,4 +1,5 @@
-import logging
+import base64
+import json
 
 from django.contrib.sites.models import Site
 
@@ -9,7 +10,8 @@ from social.utils import handle_http_errors
 import third_party_auth
 from openedx.core.djangoapps.theming.helpers import get_current_request
 
-log = logging.getLogger(__name__)
+from edx_oauth_client.signature import IdGovUaSignLibrary
+
 
 DEFAULT_AUTH_PIPELINE = [
     'third_party_auth.pipeline.parse_query_params',
@@ -25,7 +27,7 @@ DEFAULT_AUTH_PIPELINE = [
     'social.pipeline.social_auth.associate_user',
     'social.pipeline.social_auth.load_extra_data',
     'social.pipeline.user.user_details',
-    'third_party_auth.pipeline.login_analytics'
+    'third_party_auth.pipeline.login_analytics',
 ]
 
 
@@ -33,6 +35,7 @@ class GenericOAuthBackend(BaseOAuth2):
     """
     Backend for Edx OAuth Server Authorization.
     """
+
     name = 'edx-oauth2'
     skip_email_verification = True
 
@@ -40,10 +43,10 @@ class GenericOAuthBackend(BaseOAuth2):
     REDIRECT_STATE = False
 
     def authorization_url(self):
-        return self.setting("AUTHORIZATION_URL")
+        return self.setting('AUTHORIZATION_URL')
 
     def access_token_url(self):
-        return self.setting("ACCESS_TOKEN_URL")
+        return self.setting('ACCESS_TOKEN_URL')
 
     def setting(self, name, default=None, backend=None):
         """
@@ -54,13 +57,11 @@ class GenericOAuthBackend(BaseOAuth2):
         """
         # Gets the latest actual provider config.
         provider_config = third_party_auth.models.OAuth2ProviderConfig.objects.filter(
-            backend_name=self.name,
-            site=Site.objects.get_current(get_current_request()),
-            enabled=True
+            backend_name=self.name, site=Site.objects.get_current(get_current_request()), enabled=True
         ).last()
 
         if provider_config and not provider_config.enabled_for_current_site:
-            raise Exception("Can't fetch setting of a disabled backend/provider.")
+            raise Exception('Can\'t fetch setting of a disabled backend/provider.')
         try:
             return provider_config.get_setting(name)
         except KeyError:
@@ -88,30 +89,33 @@ class GenericOAuthBackend(BaseOAuth2):
         """
 
         params, headers = None, None
+        sign_library = IdGovUaSignLibrary.get_initialized_instance()
 
-        if self.setting("USER_DATA_REQUEST_METHOD", "GET") == "GET":
+        if self.setting('USER_DATA_REQUEST_METHOD', 'GET') == 'GET':
             headers = {'Authorization': 'Bearer {}'.format(access_token)}
         else:
+            encoded_cert = base64.b64encode(sign_library.enveloped_certificate.encode('utf-8'))
             params = {
-                "access_token": access_token,
-                "user_id": kwargs.get('response').get('user_id'),
-                "cert": "",
+                'access_token': access_token,
+                'user_id': kwargs.get('response').get('user_id'),
+                'cert': encoded_cert,
             }
 
         data = self.request_access_token(
             self.setting('USER_DATA_URL'),
             params=params,
             headers=headers,
-            method=self.setting("USER_DATA_REQUEST_METHOD", "GET")
+            method=self.setting('USER_DATA_REQUEST_METHOD', 'GET'),
         )
 
         if isinstance(data, list):
             data = data[0]
 
-        if data.get('success') and 'user' in data:
-            data = data['user']
-        elif 'data' in data:
-            data = data['data']
+        if not data.get('encryptedUserInfo'):
+            raise Exception('Get user info failed: %s. Error: %s', data['message'], data['error'])
+
+        developed_user_info = sign_library.develop_data(data.get('encryptedUserInfo'))
+        data = json.loads(developed_user_info.encode('utf-8'))
 
         data['access_token'] = access_token
         data.pop('password', None)
@@ -120,18 +124,16 @@ class GenericOAuthBackend(BaseOAuth2):
 
     def pipeline(self, pipeline, pipeline_index=0, *args, **kwargs):
         self.strategy.session.setdefault('auth_entry', 'register')
-        return super(GenericOAuthBackend, self).pipeline(
-            pipeline=self.PIPELINE, *args, **kwargs
-        )
+        return super(GenericOAuthBackend, self).pipeline(pipeline=self.PIPELINE, *args, **kwargs)
 
     def get_user_id(self, details, response):
         """
         Return a unique ID for the current user, by default from server response.
         """
         if 'data' in response:
-            return response['data'][0].get(self.setting("ID_KEY"))
+            return response['data'][0].get(self.setting('ID_KEY'))
 
-        return response.get(self.setting("ID_KEY"))
+        return response.get(self.setting('ID_KEY'))
 
     @handle_http_errors
     def auth_complete(self, *args, **kwargs):
@@ -142,7 +144,7 @@ class GenericOAuthBackend(BaseOAuth2):
         state = self.validate_state()
 
         data, params = None, None
-        if self.setting("ACCESS_TOKEN_METHOD", "POST") == "GET":
+        if self.setting('ACCESS_TOKEN_METHOD', 'POST') == 'GET':
             params = self.auth_complete_params(state)
         else:
             data = self.auth_complete_params(state)
@@ -153,7 +155,7 @@ class GenericOAuthBackend(BaseOAuth2):
             params=params,
             headers=self.auth_headers(),
             auth=self.auth_complete_credentials(),
-            method=self.setting("ACCESS_TOKEN_METHOD", "POST")
+            method=self.setting('ACCESS_TOKEN_METHOD', 'POST'),
         )
         self.process_error(response)
 
