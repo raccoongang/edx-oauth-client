@@ -2,7 +2,15 @@ import logging
 from typing import Optional
 
 from django.conf import settings
-from iit_protection.EUSignCP import EU_CERT_KEY_TYPE_DSTU4145, EU_KEY_USAGE_KEY_AGREEMENT, EUGetInterface, EULoad, EUUnload
+from django.utils.functional import cached_property
+from functools import wraps
+from iit_protection.EUSignCP import (
+    EU_CERT_KEY_TYPE_DSTU4145,
+    EU_KEY_USAGE_KEY_AGREEMENT,
+    EUGetInterface,
+    EULoad,
+    EUUnload,
+)
 
 log = logging.getLogger(__name__)
 
@@ -11,6 +19,34 @@ class IdGovUaSignLibraryError(Exception):
     """
     Exception raised when id.gov.ua signature library gets an error.
     """
+
+
+def library_exception_handler(func):
+    """
+    Class method decorator for handling id.gov.ua signature library errors.
+
+    Performs soft termination and unloading of the library on error.
+    """
+
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        try:
+            result = func(self, *args, **kwargs)
+        except Exception as exc:
+            error_context = eval(str(exc))
+            log.exception(
+                '%s got error. Error code: %d. Description: %s',
+                func.__name__,
+                error_context['ErrorCode'],
+                error_context['ErrorDesc'],
+            )
+            self.public_interface.Finalize()
+            EUUnload()
+            raise IdGovUaSignLibraryError from exc
+        else:
+            return result
+
+    return wrapper
 
 
 class IdGovUaSignLibrary:
@@ -29,11 +65,9 @@ class IdGovUaSignLibrary:
         self.private_key_filepath = private_key_filepath
         self.private_key_password = private_key_password
         self.public_interface = None
-        self.private_key_context = None
-        self.enveloped_certificate = None
 
     @classmethod
-    def get_initialized_instance(cls) -> "IdGovUaSignLibrary":
+    def get_instance(cls) -> "IdGovUaSignLibrary":
         """
         Class method that provides the behavior of a singleton.
 
@@ -45,60 +79,19 @@ class IdGovUaSignLibrary:
 
         In addition to defining a singleton interface, a class method also performs instance initialization.
         Will be done:
-         - id.gov.ua library loading,
-         - reading private key,
-         - reading certificate of a private key.
+         - id.gov.ua library loading.
         """
         if cls._instance is None:
-            exc = None
             cls._instance = cls(
                 settings.PRIVATE_KEY_FILE_PATH,
                 settings.PRIVATE_KEY_PASSWORD,
             )
-            try:
-                cls._instance.initialize()
-            except Exception as e:
-                exc = e
-                log.exception('Initializing id.gov.ua signature ligrary failed')
-            else:
-                log.info('id.gov.ua signature ligrary initialized successfully')
-
-            if not exc and not cls._instance.is_private_key_read():
-                try:
-                    cls._instance.read_private_key()
-                except Exception as e:
-                    exc = e
-                    error_context = eval(str(e))
-                    log.exception(
-                        'Private key reading failed. Error code: %s. Description: %s',
-                        error_context['ErrorCode'],
-                        error_context['ErrorDesc'],
-                    )
-                else:
-                    log.info('Private key read successfully')
-
-            if not exc and not cls._instance.is_certificate_read():
-                try:
-                    cls._instance.read_certificate()
-                except Exception as e:
-                    exc = e
-                    error_context = eval(str(e))
-                    log.exception(
-                        'Own certificate by private key reading failed. Error code: %s. Description: %s',
-                        error_context['ErrorCode'],
-                        error_context['ErrorDesc'],
-                    )
-                else:
-                    log.info('Own certificate read successfully')
-
-            if exc:
-                cls._instance.public_interface.Finalize()
-                EUUnload()
-                raise IdGovUaSignLibraryError(exc)
+            cls._instance.initialize()
 
         return cls._instance
 
-    def initialize(self) -> None:
+    @library_exception_handler
+    def initialize(self):
         """
         Library entry point.
 
@@ -107,20 +100,22 @@ class IdGovUaSignLibrary:
         EULoad()
         self.public_interface = EUGetInterface()
         self.public_interface.Initialize()
+        log.info('id.gov.ua signature ligrary initialized successfully')
 
-    def is_private_key_read(self) -> bool:
+    @cached_property
+    @library_exception_handler
+    def lib_context(self):
         """
-        Predicate method that defines whether the private key has been read or not.
+        Creating id.gov.ua signature library context.
         """
-        return bool(self.private_key_context)
+        library_context = []
+        self.public_interface.CtxCreate(library_context)
+        log.info('Sign ligrary context created successfully')
+        return library_context[0] if library_context else None
 
-    def is_certificate_read(self) -> bool:
-        """
-        Predicate method that defines whether the own certificate has been read or not.
-        """
-        return bool(self.enveloped_certificate)
-
-    def read_private_key(self) -> None:
+    @cached_property
+    @library_exception_handler
+    def private_key_context(self):
         """
         Read private key from file.
 
@@ -128,11 +123,26 @@ class IdGovUaSignLibrary:
         the state of the class instance.
         Method is convenient to use during initialization.
         """
-        key_info = None
-        self.public_interface.ReadPrivateKeyFile(self.private_key_filepath, self.private_key_password, key_info)
-        self.private_key_context = key_info
+        with open(settings.PRIVATE_KEY_FILE_PATH, 'rb') as f:
+            private_key = f.read()
 
-    def read_certificate(self) -> None:
+        private_key_context = []
+        key_info = {}
+        self.public_interface.CtxReadPrivateKeyBinary(
+            self.lib_context,
+            private_key,
+            len(private_key),
+            self.private_key_password,
+            private_key_context,
+            key_info,
+        )
+        log.info('Key private context read successfully')
+
+        return private_key_context[0] if private_key_context else None
+
+    @cached_property
+    @library_exception_handler
+    def enveloped_certificate(self):
         """
         Obtaining information about the private key certificate.
 
@@ -140,8 +150,8 @@ class IdGovUaSignLibrary:
         the state of the class instance.
         Method is convenient to use during initialization.
         """
-        cert_info = None
-        enveloped_cert = None
+        cert_info = {}
+        enveloped_cert = []
         self.public_interface.CtxGetOwnCertificate(
             self.private_key_context,
             EU_CERT_KEY_TYPE_DSTU4145,
@@ -149,16 +159,20 @@ class IdGovUaSignLibrary:
             cert_info,
             enveloped_cert,
         )
-        self.enveloped_certificate = enveloped_cert
+        log.info('Own certificate read successfully')
 
+        return enveloped_cert[0] if enveloped_cert else None
+
+    @library_exception_handler
     def develop_data(self, base64_enveloped_data: str, bytes_enveloped_data: Optional[bytes] = None) -> str:
         """
         Decryption of data using the context of the private key.
 
-        If a sender's certificate is passed, the sender's encrypted data certificate is not checked in the file store
-        and is not written to the file store
+        If a sender's certificate is passed, the sender's encrypted data certificate
+        is not checked in the file store and is not written to the file store
         """
-        developed_data = None
+        developed_data = []
+        info = {}
         self.public_interface.CtxDevelopData(
             self.private_key_context,
             base64_enveloped_data,
@@ -167,7 +181,7 @@ class IdGovUaSignLibrary:
             self.enveloped_certificate,
             len(self.enveloped_certificate),
             developed_data,
-            pInfo=None,
+            pInfo=info,
         )
 
-        return developed_data
+        return developed_data[0] if developed_data else None

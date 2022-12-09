@@ -89,12 +89,12 @@ class GenericOAuthBackend(BaseOAuth2):
         """
 
         params, headers = None, None
-        sign_library = IdGovUaSignLibrary.get_initialized_instance()
+        sign_library = IdGovUaSignLibrary.get_instance()
 
         if self.setting('USER_DATA_REQUEST_METHOD', 'GET') == 'GET':
             headers = {'Authorization': 'Bearer {}'.format(access_token)}
         else:
-            encoded_cert = base64.b64encode(sign_library.enveloped_certificate.encode('utf-8'))
+            encoded_cert = base64.b64encode(sign_library.enveloped_certificate)
             params = {
                 'access_token': access_token,
                 'user_id': kwargs.get('response').get('user_id'),
