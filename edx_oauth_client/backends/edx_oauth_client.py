@@ -1,5 +1,5 @@
-import base64
 import json
+import urllib
 
 from django.contrib.sites.models import Site
 
@@ -10,7 +10,7 @@ from social.utils import handle_http_errors
 import third_party_auth
 from openedx.core.djangoapps.theming.helpers import get_current_request
 
-from edx_oauth_client.signature import IdGovUaSignLibrary
+from iit_protection.crypto import CryptoLibrary
 
 
 DEFAULT_AUTH_PIPELINE = [
@@ -89,16 +89,16 @@ class GenericOAuthBackend(BaseOAuth2):
         """
 
         params, headers = None, None
-        sign_library = IdGovUaSignLibrary.get_instance()
-
+        crypto_lib = CryptoLibrary.get_instance()
         if self.setting('USER_DATA_REQUEST_METHOD', 'GET') == 'GET':
             headers = {'Authorization': 'Bearer {}'.format(access_token)}
         else:
-            encoded_cert = base64.b64encode(sign_library.enveloped_certificate)
+            cert = crypto_lib.get_own_envelop_certificate()
+            cert = urllib.parse.quote(cert)
             params = {
                 'access_token': access_token,
                 'user_id': kwargs.get('response').get('user_id'),
-                'cert': encoded_cert,
+                'cert': cert,
             }
 
         data = self.request_access_token(
@@ -107,20 +107,18 @@ class GenericOAuthBackend(BaseOAuth2):
             headers=headers,
             method=self.setting('USER_DATA_REQUEST_METHOD', 'GET'),
         )
-
         if isinstance(data, list):
             data = data[0]
 
         if not data.get('encryptedUserInfo'):
-            raise Exception('Get user info failed: %s. Error: %s', data['message'], data['error'])
+            raise Exception(data['message'])
 
-        developed_user_info = sign_library.develop_data(data.get('encryptedUserInfo'))
-        data = json.loads(developed_user_info.encode('utf-8'))
+        enveloped_data, __ = crypto_lib.develop_data(data['encryptedUserInfo'])
+        enveloped_data_ = json.loads(enveloped_data.decode('utf-8'))
+        enveloped_data_['access_token'] = access_token
+        enveloped_data_.pop('password', None)
 
-        data['access_token'] = access_token
-        data.pop('password', None)
-
-        return data
+        return enveloped_data_
 
     def pipeline(self, pipeline, pipeline_index=0, *args, **kwargs):
         self.strategy.session.setdefault('auth_entry', 'register')
