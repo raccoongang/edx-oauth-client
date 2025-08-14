@@ -86,6 +86,8 @@ def ensure_user_information(
 
             (user, profile, registration) = do_create_account(form)
             user.is_active = True
+            user.first_name = user_data.get('givenname')
+            user.last_name = user_data.get('lastname')
             user.set_unusable_password()
             user.profile.second_name = user_data.get('middlename')
             user.profile.meta = json.dumps({"drfcode": user_data.get('drfocode')})
