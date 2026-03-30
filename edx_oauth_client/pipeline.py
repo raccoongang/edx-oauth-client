@@ -11,10 +11,9 @@ from django.urls import reverse
 from edxmako.shortcuts import render_to_response
 from social_core.pipeline import partial
 from social_django.models import UserSocialAuth
-from third_party_auth.pipeline import AuthEntryError, is_api, get_complete_url
+from third_party_auth.pipeline import AuthEntryError
 
 from openedx.core.djangoapps.dark_lang import DARK_LANGUAGE_KEY
-from openedx.core.djangoapps.user_authn import cookies as user_authn_cookies
 from openedx.core.djangoapps.user_authn.views.registration_form import AccountCreationForm
 from openedx.core.djangoapps.user_authn.utils import generate_password
 from openedx.core.djangoapps.user_api.preferences.api import set_user_preference
@@ -77,6 +76,7 @@ def ensure_user_information(
 
         input_drfocode = str(user_data.get('drfocode') or '').strip()
         if not input_drfocode:
+            log.error('DRFO code is not received from the provider for user data=%s', user_data)
             raise AuthEntryError(backend, 'DRFO code is not received from the provider.')
 
         try:
