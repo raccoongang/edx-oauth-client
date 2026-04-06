@@ -10,10 +10,10 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from edxmako.shortcuts import render_to_response
 from social_core.pipeline import partial
-from third_party_auth.pipeline import AuthEntryError, is_api, get_complete_url
+from social_django.models import UserSocialAuth
+from third_party_auth.pipeline import AuthEntryError
 
 from openedx.core.djangoapps.dark_lang import DARK_LANGUAGE_KEY
-from openedx.core.djangoapps.user_authn import cookies as user_authn_cookies
 from openedx.core.djangoapps.user_authn.views.registration_form import AccountCreationForm
 from openedx.core.djangoapps.user_authn.utils import generate_password
 from openedx.core.djangoapps.user_api.preferences.api import set_user_preference
@@ -74,8 +74,13 @@ def ensure_user_information(
         data['password'] = generate_password()
         data['provider'] = backend.name
 
+        input_drfocode = str(user_data.get('drfocode') or '').strip()
+        if not input_drfocode:
+            log.error('DRFO code is not received from the provider for user data=%s', user_data)
+            raise AuthEntryError(backend, 'DRFO code is not received from the provider.')
+
         try:
-            user = User.objects.get(profile__meta__contains='"drfcode": {}'.format(user_data.get('drfocode')))
+            user = User.objects.get(profile__meta__contains='"drfcode": "{}"'.format(input_drfocode))
         except User.DoesNotExist:
             form = AccountCreationForm(
                 data=data,
@@ -90,13 +95,71 @@ def ensure_user_information(
             user.last_name = user_data.get('lastname')
             user.set_unusable_password()
             user.profile.second_name = user_data.get('middlename')
-            user.profile.meta = json.dumps({"drfcode": user_data.get('drfocode')})
+            user.profile.meta = json.dumps({"drfcode": input_drfocode})
             user.profile.save()
             user.save()
 
             set_user_preference(user, DARK_LANGUAGE_KEY, 'uk')
 
+        else:
+            existing_drfocode = _get_profile_drfocode(user)
+            if existing_drfocode != input_drfocode:
+                log.error(
+                    'Profile DRFO mismatch for user_id=%s existing_drfocode=%s input_drfocode=%s',
+                    user.id, existing_drfocode, input_drfocode
+                )
+                raise AuthEntryError(
+                    backend,
+                    'This identity conflicts with an existing account. Please contact support.'
+                )
+
+            _validate_existing_oauth_links(user, backend.name, input_drfocode)
+
     return {'user': user}
+
+
+def _get_profile_drfocode(user) -> str:
+    """
+    Return DRFO code from user profile.meta.
+
+    :param user: User instance
+    :return: DRFO code or empty string
+    """
+    raw_meta = getattr(user.profile, 'meta', '') or ''
+    try:
+        meta = json.loads(raw_meta)
+    except (TypeError, ValueError):
+        log.warning('Invalid profile.meta for user_id=%s', user.id)
+        return ''
+
+    return str(meta.get('drfcode') or '').strip()
+
+
+def _validate_existing_oauth_links(user: User, provider: str, drfocode: str) -> None:
+    """
+    Validate existing social auth links for provider and DRFO code.
+
+    :param user: User instance
+    :param provider: OAuth provider name
+    :param drfocode: Input DRFO code
+    :raise AuthEntryError: If provider UID conflicts with account
+    """
+    existing_uids = set(
+        str(uid) for uid in UserSocialAuth.objects.filter(
+            user=user,
+            provider=provider,
+        ).values_list('uid', flat=True)
+    )
+
+    if existing_uids and drfocode not in existing_uids:
+        log.error(
+            'OAuth UID conflict for user_id=%s provider=%s existing_uids=%s input_uid=%s',
+            user.id, provider, sorted(existing_uids), drfocode
+        )
+        raise AuthEntryError(
+            None,
+            'This identity conflicts with an existing account. Please contact support.'
+        )
 
 
 @partial.partial
