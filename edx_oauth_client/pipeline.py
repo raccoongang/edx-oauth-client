@@ -32,6 +32,7 @@ def ensure_user_information(
 
     Either an existing account or registration data.
     """
+    prevent_authenticated_user_association(strategy, backend, user=user, social=social)
 
     data = {}
     try:
@@ -68,16 +69,19 @@ def ensure_user_information(
         log.exception(e)
         raise AuthEntryError(backend, "Cannot receive user's data")
 
+    input_drfocode = str(user_data.get('drfocode') or '').strip()
+    if not input_drfocode:
+        log.error('DRFO code is not received from the provider')
+        raise AuthEntryError(backend, 'DRFO code is not received from the provider.')
+
+    if user:
+        _validate_user_identity(user, backend, input_drfocode)
+
     if not user:
         data['terms_of_service'] = 'True'
         data['honor_code'] = 'True'
         data['password'] = generate_password()
         data['provider'] = backend.name
-
-        input_drfocode = str(user_data.get('drfocode') or '').strip()
-        if not input_drfocode:
-            log.error('DRFO code is not received from the provider for user data=%s', user_data)
-            raise AuthEntryError(backend, 'DRFO code is not received from the provider.')
 
         try:
             user = User.objects.get(profile__meta__contains='"drfcode": "{}"'.format(input_drfocode))
@@ -102,20 +106,74 @@ def ensure_user_information(
             set_user_preference(user, DARK_LANGUAGE_KEY, 'uk')
 
         else:
-            existing_drfocode = _get_profile_drfocode(user)
-            if existing_drfocode != input_drfocode:
-                log.error(
-                    'Profile DRFO mismatch for user_id=%s existing_drfocode=%s input_drfocode=%s',
-                    user.id, existing_drfocode, input_drfocode
-                )
-                raise AuthEntryError(
-                    backend,
-                    'This identity conflicts with an existing account. Please contact support.'
-                )
-
-            _validate_existing_oauth_links(user, backend.name, input_drfocode)
+            _validate_user_identity(user, backend, input_drfocode)
 
     return {'user': user}
+
+
+def prevent_authenticated_user_association(strategy, backend, user=None, social=None, *args, **kwargs):
+    """
+    Do not associate a new OAuth identity with an authenticated LMS session.
+
+    The social-auth partial pipeline adds the current request user when a
+    registration form is resumed. Without this guard, another person's OAuth
+    UID can be associated with that already authenticated user.
+
+    :param strategy: The strategy object from python-social-auth
+    :param backend: The authentication backend being used
+    :param user: The user object from the pipeline (may be None)
+    :param social: The UserSocialAuth instance (None for new associations)
+    :param args: Additional positional arguments
+    :param kwargs: Additional keyword arguments
+    :raises AuthEntryError: If attempting to associate OAuth identity with
+        an already authenticated session
+    """
+    request = getattr(strategy, 'request', None)
+    request_user = getattr(request, 'user', None)
+    is_authenticated = getattr(request_user, 'is_authenticated', False)
+    if callable(is_authenticated):
+        is_authenticated = is_authenticated()
+
+    if is_authenticated and user and social is None:
+        log.error(
+            'Blocked OAuth association with authenticated session: '
+            'provider=%s request_user_id=%s pipeline_user_id=%s',
+            backend.name,
+            getattr(request_user, 'id', None),
+            getattr(user, 'id', None),
+        )
+        raise AuthEntryError(
+            backend,
+            'Please sign out before registering with another identity.'
+        )
+
+
+def _validate_user_identity(user: User, backend, drfocode: str) -> None:
+    """
+    Validate that the local profile and OAuth links match the incoming identity.
+
+    Ensures that the DRFO code stored in the user's profile matches the incoming
+    DRFO code from the OAuth provider, and validates that existing OAuth links
+    for this user don't conflict with the new authentication attempt.
+
+    :param user: The Django User instance to validate
+    :param backend: The authentication backend being used (from python-social-auth)
+    :param drfocode: The DRFO code received from the OAuth provider
+    :raises AuthEntryError: If the DRFO code doesn't match the profile or if there
+        are conflicting OAuth UIDs for this provider
+    """
+    existing_drfocode = _get_profile_drfocode(user)
+    if existing_drfocode != drfocode:
+        log.error(
+            'Profile DRFO mismatch for user_id=%s provider=%s',
+            user.id, backend.name
+        )
+        raise AuthEntryError(
+            backend,
+            'This identity conflicts with an existing account. Please contact support.'
+        )
+
+    _validate_existing_oauth_links(user, backend.name, drfocode)
 
 
 def _get_profile_drfocode(user) -> str:
@@ -151,10 +209,11 @@ def _validate_existing_oauth_links(user: User, provider: str, drfocode: str) -> 
         ).values_list('uid', flat=True)
     )
 
-    if existing_uids and drfocode not in existing_uids:
+    conflicting_uids = existing_uids - {drfocode}
+    if conflicting_uids:
         log.error(
-            'OAuth UID conflict for user_id=%s provider=%s existing_uids=%s input_uid=%s',
-            user.id, provider, sorted(existing_uids), drfocode
+            'OAuth UID conflict for user_id=%s provider=%s records_count=%s',
+            user.id, provider, len(existing_uids)
         )
         raise AuthEntryError(
             None,

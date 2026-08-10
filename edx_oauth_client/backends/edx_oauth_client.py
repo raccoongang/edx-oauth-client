@@ -24,6 +24,7 @@ DEFAULT_AUTH_PIPELINE = [
     'edx_oauth_client.pipeline.fill_in_email',
     'edx_oauth_client.pipeline.ensure_user_information',
     'social.pipeline.user.create_user',
+    'edx_oauth_client.pipeline.prevent_authenticated_user_association',
     'social.pipeline.social_auth.associate_user',
     'social.pipeline.social_auth.load_extra_data',
     'social.pipeline.user.user_details',
